@@ -24,33 +24,78 @@ pub fn main() !void {
         var file_reader: std.fs.File.Reader = .init(file, &read_buffer);
         try file_reader.interface.readSliceAll(buffer);
     }
+
+    const sum = try sumAllTwiceNumbers(buffer);
+    std.debug.print("{any}\n", .{sum});
 }
 
-test "Sameness check" {
+test "First star, does zero count match with example?" {
+    const buffer = "11-22,95-115,998-1012,1188511880-1188511890,222220-222224,1698522-1698528,446443-446449,38593856-38593862,565653-565659,824824821-824824827,2121212118-2121212124";
+
+    try std.testing.expectEqual(1227775554, sumAllTwiceNumbers(buffer));
+}
+
+pub fn sumAllTwiceNumbers(buffer: []const u8) !u64 {
+    var start: usize = 0;
+    var middle: usize = 0;
+    var end: usize = 0;
+
     var sum: u64 = 0;
-    for (0..10_001) |i| {
-        if (isRepeatedTwice(i)) sum += i;
+
+    state: switch (enum { reset, get_ranges, read_ranges }.get_ranges) {
+        .reset => {
+            end += 1;
+            start = end;
+
+            if (end < buffer.len) continue :state .get_ranges;
+
+            break :state;
+        },
+        .get_ranges => {
+            end += 1;
+            if (end == buffer.len) {
+                if (3 <= end - start and start < middle and middle < end) continue :state .read_ranges;
+                break :state;
+            }
+
+            std.debug.assert(end < buffer.len);
+
+            switch (buffer[end]) {
+                ',', '\n' => {
+                    if (!(start < middle and middle < end)) return error.InvalidInput;
+
+                    continue :state .read_ranges;
+                },
+                '-' => middle = end,
+                else => {},
+            }
+
+            continue :state .get_ranges;
+        },
+        .read_ranges => {
+            const lower_bound = try asciiToNum(buffer[start..middle]);
+            const higher_bound = try asciiToNum(buffer[middle + 1 .. end]);
+
+            sum += sumTwiceNumbers(lower_bound, higher_bound);
+
+            continue :state .reset;
+        },
     }
 
-    try std.testing.expectEqual(sum, sumTwiceNumbers(1, 10_000));
+    return sum;
 }
 
-// pub fn howManyTwiceRepated(start: u64, end: u64) u64 {
-// 0..100
-// 1 1... 9 9 // 9
-// {num}{num} // count: 0 .. num
-//
-// Start point format {num1}{num2}
-// 1. Convert start to {num}{num} if (num2 < num1) increase num2 til num1 == num2 else num1 + 1 and num2 == num1
-//
-// End point format {num1}{num2}
-// 2. Convert end to {num}{num} if (num1 < num2) decrease num1 til num1 == num2 else num1 - 1 and num2 == num1
-//
-// count == (end point num) - (start point num)
-//
-// 100 -> 10/10
-// 9 -> 9/9
-// }
+pub fn asciiToNum(buffer: []const u8) !u64 {
+    var num: u64 = 0;
+    for (buffer) |char| {
+        switch (char) {
+            '0'...'9' => num = num * 10 + (char - '0'),
+            else => return error.InvalidNumber,
+        }
+    }
+
+    return num;
+}
 
 pub fn sumTwiceNumbers(lower_bound: u64, higher_bound: u64) u64 {
     const num_width: u64 = init: {
@@ -67,16 +112,46 @@ pub fn sumTwiceNumbers(lower_bound: u64, higher_bound: u64) u64 {
     var sum: u64 = 0;
 
     var base: u64 = init: {
-        var copy: u64 = lower_bound;
-        for (0..num_width >> 1) |_| {
-            copy /= 10;
+        const half_num_width = num_width >> 1;
+
+        if (num_width & 1 == 1) {
+            var base: u64 = 1;
+            for (0..half_num_width) |_| {
+                base *= 10;
+            }
+
+            break :init base;
         }
 
-        break :init copy;
+        var upper_half: u64 = lower_bound;
+        for (0..half_num_width) |_| {
+            upper_half /= 10;
+        }
+
+        var upper_half_raised: u64 = upper_half;
+        for (0..half_num_width) |_| {
+            upper_half_raised *= 10;
+        }
+
+        const lower_half = lower_bound - upper_half_raised;
+
+        if (upper_half < lower_half) break :init upper_half + 1;
+
+        break :init upper_half;
     };
 
+    var offset: u64 = 1;
+    for (0..num_width >> 1) |_| {
+        offset *= 10;
+    }
+
     while (true) : (base += 1) {
-        const repeated_number = repeatedNumber(base);
+        while (offset <= base) {
+            offset *= 10;
+        }
+
+        const repeated_number = base * offset + base;
+
         if (repeated_number <= higher_bound) {
             sum += repeated_number;
         }
@@ -87,59 +162,4 @@ pub fn sumTwiceNumbers(lower_bound: u64, higher_bound: u64) u64 {
     }
 
     return sum;
-}
-
-pub inline fn repeatedNumber(base: u64) u64 {
-    const num_width: u64 = init: {
-        var copy: u64 = base;
-
-        var i: u6 = 0;
-        while (copy > 0) : (i += 1) {
-            copy /= 10;
-        }
-
-        break :init @max(1, i);
-    };
-
-    var repated_number = base;
-    for (0..num_width) |_| {
-        repated_number *= 10;
-    }
-
-    return repated_number + base;
-}
-
-pub fn isRepeatedTwice(num: u64) bool {
-    const num_width: u64 = init: {
-        var copy: u64 = num;
-
-        var i: u6 = 0;
-        while (copy > 0) : (i += 1) {
-            copy /= 10;
-        }
-
-        break :init i;
-    };
-
-    if (1 & num_width == 1) return false;
-
-    const bottom_half = init: {
-        var copy: u64 = num;
-        for (0..num_width >> 1) |_| {
-            copy /= 10;
-        }
-
-        break :init copy;
-    };
-
-    const top_half = init: {
-        var copy: u64 = bottom_half;
-        for (0..num_width >> 1) |_| {
-            copy *= 10;
-        }
-
-        break :init copy;
-    };
-
-    return top_half == (num - bottom_half);
 }

@@ -141,10 +141,6 @@ pub fn sumTwiceNumbers(lower_bound: u64, higher_bound: u64) u64 {
     };
 
     var offset: u64 = 1;
-    for (0..num_width >> 1) |_| {
-        offset *= 10;
-    }
-
     while (true) : (base += 1) {
         while (offset <= base) {
             offset *= 10;

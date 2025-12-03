@@ -25,11 +25,11 @@ pub fn main() !void {
         try file_reader.interface.readSliceAll(buffer);
     }
 
-    const sum = try getMaxJoltage(buffer);
-    std.debug.print("{any}\n", .{sum});
+    std.debug.print("{any}\n", .{try getMaxJoltage(2, buffer)});
+    std.debug.print("{any}\n", .{try getMaxJoltage(12, buffer)});
 }
 
-test "First star, does zero count match with example?" {
+test "First star, does joltage match with the example?" {
     const buffer =
         \\987654321111111
         \\811111111111119
@@ -37,10 +37,23 @@ test "First star, does zero count match with example?" {
         \\818181911112111
     ;
 
-    try std.testing.expectEqual(357, getMaxJoltage(buffer));
+    try std.testing.expectEqual(357, getMaxJoltage(2, buffer));
 }
 
-pub fn getMaxJoltage(buffer: []const u8) !u64 {
+test "Second star, does joltage match with the example?" {
+    const buffer =
+        \\987654321111111
+        \\811111111111119
+        \\234234234234278
+        \\818181911112111
+    ;
+
+    try std.testing.expectEqual(3121910778619, getMaxJoltage(12, buffer));
+}
+
+pub fn getMaxJoltage(comptime batteries_count: u64, buffer: []const u8) !u64 {
+    if (batteries_count == 0) @compileError("Expected a non zero u64 was given 0");
+
     var start: usize = 0;
     var end: usize = 0;
 
@@ -74,28 +87,65 @@ pub fn getMaxJoltage(buffer: []const u8) !u64 {
             // std.debug.print("\n", .{});
             // std.debug.print("{s}:\n", .{buffer[start..end]});
 
-            var first_battery: u8 = 0;
-            var second_battery: u8 = 0;
+            var batteries: [batteries_count]u8 = .{0} ** batteries_count;
 
             for (buffer[start..end]) |char| {
-                const num: u8 = char - '0';
-                if (second_battery < num) {
-                    if (first_battery < second_battery) {
-                        first_battery = second_battery;
+                var free_value: u8 = char - '0';
+
+                for (0..batteries.len - 1) |current| {
+                    const move_for_future = init: {
+                        for (current..batteries.len - 1) |current_future| {
+                            for (current_future + 1..batteries.len) |future| {
+                                if (batteries[future] < batteries[current_future]) break :init true;
+                            }
+                        }
+
+                        break :init false;
+                    };
+
+                    if (batteries[current] < free_value or move_for_future) {
+                        const tmp = batteries[current];
+                        batteries[current] = free_value;
+                        free_value = tmp;
+                        continue;
                     }
-                    second_battery = num;
-                } else if (first_battery < num) {
-                    first_battery = second_battery;
-                    second_battery = num;
-                } else if (first_battery < second_battery) {
-                    first_battery = second_battery;
-                    second_battery = num;
+
+                    free_value = 0;
+
+                    break;
                 }
+
+                if (batteries[batteries.len - 1] < free_value) batteries[batteries.len - 1] = free_value;
             }
 
-            // std.debug.print("{any}{any}\n", .{ first_battery, second_battery });
+            // if (second_battery < num) {
+            //     if (first_battery < second_battery) {
+            //         first_battery = second_battery;
+            //     }
+            //     second_battery = num;
+            // } else if (first_battery < num) {
+            //     first_battery = second_battery;
+            //     second_battery = num;
+            // } else if (first_battery < second_battery) {
+            //     first_battery = second_battery;
+            //     second_battery = num;
+            // }
 
-            joltage += first_battery * 10 + second_battery;
+            // for (0..batteries.len) |i| {
+            //     std.debug.print("{any}", .{batteries[batteries.len - 1 - i]});
+            // }
+            //
+            // std.debug.print("\n", .{});
+
+            for (batteries, 0..) |battery, i| {
+                var battery_joltage: u64 = battery;
+
+                for (0..i) |_| {
+                    battery_joltage *= 10;
+                }
+
+                joltage += battery_joltage;
+            }
 
             continue :state .reset;
         },
